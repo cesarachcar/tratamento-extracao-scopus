@@ -1,0 +1,33 @@
+let
+  ExtractEmails = (t as nullable text) as list =>
+    let txt = if t=null then "" else t, tLower = Text.Lower(txt), key="email: ", keyLen=Text.Length(key), lenTxt=Text.Length(txt),
+        findNext = (start as number) as record =>
+          let sliceLower = if start < lenTxt then Text.Range(tLower, start, lenTxt-start) else "",
+              posRel = Text.PositionOf(sliceLower, key, Occurrence.First),
+              found = posRel <> -1,
+              posAbs = if found then start + posRel else -1,
+              s = if found then posAbs + keyLen else -1,
+              sliceAfter = if found and s < lenTxt then Text.Range(txt, s, lenTxt-s) else "",
+              semiRel = if found then Text.PositionOf(sliceAfter, ";", Occurrence.First) else -1,
+              e = if found then (if semiRel <> -1 then s + semiRel else lenTxt) else -1,
+              value = if found then Text.Trim(Text.Range(txt, s, e - s)) else null
+          in [found=found,start=s,end=e,value=value],
+        loop = (start as number, acc as list) as list => let f = findNext(start) in if not f[found] then acc else @loop(f[end]+1, acc & {f[value]})
+    in loop(0, {}),
+
+  Fonte = Csv.Document(
+            File.Contents("C:\Users\cesar\Downloads\scopus (12).csv"),
+            [Delimiter=",", Columns=2, Encoding=65001, QuoteStyle=QuoteStyle.Csv]
+          ),
+  // Se o CSV NÃO tiver cabeçalho, as colunas virão como Column1 / Column2.
+  // Se TIVER cabeçalho, use Table.PromoteHeaders(Fonte, [PromoteAllScalars=true]) e ajuste os nomes.
+  #"Tipo Alterado" = Table.TransformColumnTypes(Fonte, {{"Column1", type text}, {"Column2", type text}}),
+  #"Colunas Removidas" = Table.RemoveColumns(#"Tipo Alterado", {"Column1"}),
+  #"Adicionar Coluna Emails (lista)" = Table.AddColumn(#"Colunas Removidas", "EmailsLista", each ExtractEmails([Column2]), type list),
+  #"Expandir Emails" = Table.ExpandListColumn(#"Adicionar Coluna Emails (lista)", "EmailsLista"),
+  #"Renomear Coluna" = Table.RenameColumns(#"Expandir Emails", {{"EmailsLista", "Email"}}),
+  #"Remover Linhas Vazias" = Table.SelectRows(#"Renomear Coluna", each [Email] <> null and Text.Trim([Email]) <> ""),
+  #"Colunas Removidas1" = Table.RemoveColumns(#"Remover Linhas Vazias", {"Column2"}),
+  #"Duplicatas Removidas" = Table.Distinct(#"Colunas Removidas1")
+in
+  #"Duplicatas Removidas"
